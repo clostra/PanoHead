@@ -44,28 +44,21 @@ def create_samples(N=256, voxel_origin=[0, 0, 0], cube_length=2.0):
     voxel_origin = np.array(voxel_origin) - cube_length/2
     voxel_size = cube_length / (N - 1)
 
-    overall_index = torch.arange(0, N ** 3, 1, out=torch.LongTensor())
-    samples = torch.zeros(N ** 3, 3)
-
-    # transform first 3 columns
-    # to be the x, y, z index
-    samples[:, 2] = overall_index % N
-    samples[:, 1] = (overall_index.float() / N) % N
-    samples[:, 0] = ((overall_index.float() / N) / N) % N
+    samples = torch.stack(torch.meshgrid(
+        torch.arange(0, N, dtype=torch.float32),
+        torch.arange(0, N, dtype=torch.float32),
+        torch.arange(0, N, dtype=torch.float32),
+    ), dim=-1).view(-1, 3)
 
     # transform first 3 columns
     # to be the x, y, z coordinate
-    samples[:, 0] = (samples[:, 0] * voxel_size) + voxel_origin[2]
-    samples[:, 1] = (samples[:, 1] * voxel_size) + voxel_origin[1]
-    samples[:, 2] = (samples[:, 2] * voxel_size) + voxel_origin[0]
+    samples = samples * voxel_size + voxel_origin
 
-    num_samples = N ** 3
-
-    return samples.unsqueeze(0), voxel_origin, voxel_size
+    return samples.unsqueeze(0).float(), voxel_origin, voxel_size
 
 #----------------------------------------------------------------------------
 
-def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,1), num_keyframes=None, wraps=2, psi=1, truncation_cutoff=14, cfg='FFHQ', image_mode='image', gen_shapes=False, device=torch.device('cuda'), **video_kwargs):
+def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,1), num_keyframes=None, wraps=2, psi=1, truncation_cutoff=14, cfg='FFHQ', image_mode='image', gen_shapes=False, output_ply=True, device=torch.device('cuda'), **video_kwargs):
     grid_w = grid_dims[0]
     grid_h = grid_dims[1]
 
@@ -90,7 +83,8 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
     os.makedirs(outdirs, exist_ok=True)
     # add delta_c
     z_samples = np.random.RandomState(123).randn(10000, G.z_dim)
-    delta_c = G.t_mapping(torch.from_numpy(np.mean(z_samples, axis=0, keepdims=True)).to(device), c[:1], truncation_psi=1.0, truncation_cutoff=None, update_emas=False)
+    with torch.no_grad():
+        delta_c = G.t_mapping(torch.from_numpy(np.mean(z_samples, axis=0, keepdims=True)).to(device), c[:1], truncation_psi=1.0, truncation_cutoff=None, update_emas=False)
     delta_c = torch.squeeze(delta_c, 1)
     c[:,3] += delta_c[:,0]
     c[:,7] += delta_c[:,1]
@@ -109,11 +103,13 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
 
     # Render video.
     max_batch = 10000000
-    voxel_resolution = 512
+    voxel_resolution = 128
     video_out = imageio.get_writer(mp4, mode='I', fps=60, codec='libx264', **video_kwargs)
 
 
     all_poses = []
+    all_c = []
+    all_depth = []
     for frame_idx in tqdm(range(num_keyframes * w_frames)):
         imgs = []
         for yi in range(grid_h):
@@ -140,7 +136,14 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
                 c[:,3] += delta_c[:,0]
                 c[:,7] += delta_c[:,1]
                 c[:,11] += delta_c[:,2]
-                img = G.synthesis(ws=w.unsqueeze(0), c=c[0:1], noise_mode='const')[image_mode][0]
+                with torch.no_grad():
+                    synthesis_result = G.synthesis(ws=w.unsqueeze(0), c=c[0:1], noise_mode='const')
+                img = synthesis_result[image_mode][0]
+                depth = synthesis_result['image_depth'][0]
+
+
+                all_c.append(c)
+                all_depth.append(depth.cpu().numpy())
 
                 if image_mode == 'image_depth':
                     img = -img
@@ -155,6 +158,7 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
                     samples, voxel_origin, voxel_size = create_samples(N=voxel_resolution, voxel_origin=[0, 0, 0], cube_length=G.rendering_kwargs['box_warp'])
                     samples = samples.to(device)
                     sigmas = torch.zeros((samples.shape[0], samples.shape[1], 1), device=device)
+                    # rgbs = torch.zeros((samples.shape[0], samples.shape[1], 3), device=device)
                     transformed_ray_directions_expanded = torch.zeros((samples.shape[0], max_batch, 3), device=device)
                     transformed_ray_directions_expanded[..., -1] = -1
 
@@ -163,7 +167,9 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
                         with torch.no_grad():
                             while head < samples.shape[1]:
                                 torch.manual_seed(0)
-                                sigma = G.sample_mixed(samples[:, head:head+max_batch], transformed_ray_directions_expanded[:, :samples.shape[1]-head], w.unsqueeze(0), truncation_psi=psi, noise_mode='const')['sigma']
+                                res = G.sample_mixed(samples[:, head:head+max_batch], transformed_ray_directions_expanded[:, :samples.shape[1]-head], w.unsqueeze(0), truncation_psi=psi, noise_mode='const')
+                                sigma = res['sigma']
+                                # rgb = res['rgb']
                                 sigmas[:, head:head+max_batch] = sigma
                                 head += max_batch
                                 pbar.update(max_batch)
@@ -180,10 +186,25 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
                     sigmas[:, :, :pad] = 0
                     sigmas[:, :, -pad:] = 0
 
-                    output_ply = False
                     if output_ply:
-                        from shape_utils import convert_sdf_samples_to_ply
-                        convert_sdf_samples_to_ply(np.transpose(sigmas, (2, 1, 0)), [0, 0, 0], 1, os.path.join(outdirs, mp4.replace('.mp4', '.ply')), level=10)
+                        from shape_utils import convert_sdf_samples_to_ply, convert_sdf_samples_to_obj
+                        def _color_lambda(x):
+                            dirs = torch.zeros_like(x)
+                            dirs[..., -1] = -1
+                            rgb_feat = G.sample_mixed(x[None], dirs[None], w.unsqueeze(0), truncation_psi=psi, noise_mode='const')['rgb']# [1, N, 32]
+                            if G.decoder.activation == "sigmoid":
+                                rgb_feat = rgb_feat * 2 - 1 # Scale to (-1, 1), taken from ray marcher
+                            rgb = G.torgb(rgb_feat.permute(0, 2, 1)[..., None], w[None, -1], fused_modconv=False)[0, ..., 0].to(torch.float32).contiguous().T
+                            rgb = (rgb * 0.5 + 0.5).clip(0.0, 1.0)
+                            return rgb
+                        convert_sdf_samples_to_obj(
+                            # np.transpose(sigmas, (2, 1, 0)), 
+                            sigmas,
+                            path=mp4.replace('.mp4', '') + '_mesh_level2', 
+                            level=10, 
+                            color_lambda=_color_lambda, 
+                        )
+                        # convert_sdf_samples_to_ply(np.transpose(sigmas, (2, 1, 0)), [0, 0, 0], 1, mp4.replace('.mp4', '.ply'), level=10)
                     else: # output mrc
                         with mrcfile.new_mmap(mp4.replace('.mp4', '.mrc'), overwrite=True, shape=sigmas.shape, mrc_mode=2) as mrc:
                             mrc.data[:] = sigmas
@@ -191,11 +212,17 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
         video_out.append_data(layout_grid(torch.stack(imgs), grid_w=grid_w, grid_h=grid_h))
     video_out.close()
     all_poses = np.stack(all_poses)
+    all_c = torch.cat(all_c, dim=0).cpu().numpy()
+    all_depth = np.stack(all_depth, axis=0)
 
     if gen_shapes:
         print(all_poses.shape)
         with open(mp4.replace('.mp4', '_trajectory.npy'), 'wb') as f:
             np.save(f, all_poses)
+        with open(mp4.replace('.mp4', '_c.npy'), 'wb') as f:
+            np.save(f, all_c)
+        with open(mp4.replace('.mp4', '_depth.npy'), 'wb') as f:
+            np.save(f, all_depth)
 
 #----------------------------------------------------------------------------
 
@@ -246,8 +273,8 @@ def parse_tuple(s: Union[str, Tuple[int,int]]) -> Tuple[int, int]:
 @click.option('--image_mode', help='Image mode', type=click.Choice(['image', 'image_depth', 'image_raw']), required=False, metavar='STR', default='image', show_default=True)
 @click.option('--sample_mult', 'sampling_multiplier', type=float, help='Multiplier for depth sampling in volume rendering', default=1, show_default=True)
 @click.option('--nrr', type=int, help='Neural rendering resolution override', default=None, show_default=True)
-@click.option('--shapes', type=bool, help='Gen shapes for shape interpolation', default=False, show_default=True)
-@click.option('--interpolate', type=bool, help='Interpolate between seeds', default=True, show_default=True)
+@click.option('--shapes', type=bool, help='Gen shapes for shape interpolation', is_flag=True, default=False, show_default=True)
+@click.option('--interpolate', type=bool, help='Interpolate between seeds', is_flag=True, default=True, show_default=True)
 
 def generate_images(
     network_pkl: str,
@@ -271,7 +298,7 @@ def generate_images(
     """
 
     print('Loading networks from "%s"...' % network_pkl)
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:0')
     with dnnlib.util.open_url(network_pkl) as f:
         G = legacy.load_network_pkl(f)['G_ema'].to(device) # type: ignore
 
@@ -285,6 +312,9 @@ def generate_images(
         truncation_psi = 1.0 # truncation cutoff of 0 means no truncation anyways
     if truncation_psi == 1.0:
         truncation_cutoff = 14 # no truncation so doesn't matter where we cutoff
+
+    # DEBUG
+    # image_mode = 'image_raw'
 
     ws = torch.tensor(np.load(latent)['w']).to(device)
     gen_interp_video(G=G, mp4=output, ws=ws, bitrate='100M', grid_dims=grid, num_keyframes=num_keyframes, w_frames=w_frames, psi=truncation_psi, truncation_cutoff=truncation_cutoff, cfg=cfg, image_mode=image_mode, gen_shapes=shapes, device=device)

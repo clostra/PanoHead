@@ -18,6 +18,7 @@ import dnnlib
 import legacy
 
 from camera_utils import LookAtPoseSampler
+from typing import Union, List
 
 def create_samples(N=256, voxel_origin=[0, 0, 0], cube_length=2.0):
     # NOTE: the voxel_origin is actually the (bottom, left, down) corner, not the middle
@@ -46,8 +47,8 @@ def create_samples(N=256, voxel_origin=[0, 0, 0], cube_length=2.0):
 
 def project(
     G,
-    target: torch.Tensor, # [C,H,W] and dynamic range [0,255], W & H must match G output resolution
-    c: torch.Tensor,
+    targets: torch.Tensor, # [B,C,H,W] and dynamic range [0,255], W & H must match G output resolution
+    c: torch.Tensor, # [B, 25]
     *,
     num_steps                  = 1000,
     w_avg_samples              = 10000,
@@ -61,7 +62,8 @@ def project(
     verbose                    = False,
     device: torch.device
 ):
-    assert target.shape == (G.img_channels, G.img_resolution, G.img_resolution)
+    assert targets.shape[1:] == (G.img_channels, G.img_resolution, G.img_resolution)
+    assert c.shape[0] == targets.shape[0]
 
     def logprint(*args):
         if verbose:
@@ -83,7 +85,11 @@ def project(
 
     # fix delta_c
 
-    delta_c = G.t_mapping(torch.from_numpy(np.mean(z_samples, axis=0, keepdims=True)).to(device), c[:1], truncation_psi=1.0, truncation_cutoff=None, update_emas=False)
+    delta_c = G.t_mapping(
+        torch.from_numpy(np.mean(z_samples, axis=0, keepdims=True)).to(device).expand(c.shape[0], -1), 
+        c, 
+        truncation_psi=1.0, truncation_cutoff=None, update_emas=False
+    )
     delta_c = torch.squeeze(delta_c, 1)
     c[:,3] += delta_c[:,0]
     c[:,7] += delta_c[:,1]
@@ -98,7 +104,7 @@ def project(
         vgg16 = torch.jit.load(f).eval().to(device)
 
     # Features for target image.
-    target_images = target.unsqueeze(0).to(device).to(torch.float32) / 255.0 * 2 - 1
+    target_images = targets.to(device).to(torch.float32) / 255.0 * 2 - 1
     target_images_perc = (target_images + 1) * (255/2)
     if target_images_perc.shape[2] > 256:
         target_images_perc = F.interpolate(target_images_perc, size=(256, 256), mode='area')
@@ -133,7 +139,7 @@ def project(
         # Synth images from opt_w.
         w_noise = torch.randn_like(w_opt) * w_noise_scale
         ws = w_opt + w_noise
-        synth_images = G.synthesis(ws, c=c, noise_mode='const')['image']
+        synth_images = G.synthesis(ws.repeat(c.shape[0], 1, 1), c=c, noise_mode='const')['image']
 
         # Downsample image to 256x256 if it's larger than that. VGG was built for 224x224 images.
         synth_images_perc = (synth_images + 1) * (255/2)
@@ -182,12 +188,11 @@ def project(
 
     return w_out, c
 
-
 def project_pti(
     G,
-    target: torch.Tensor, # [C,H,W] and dynamic range [0,255], W & H must match G output resolution
+    targets: torch.Tensor, # [B,C,H,W] and dynamic range [0,255], W & H must match G output resolution
     w_pivot: torch.Tensor,
-    c: torch.Tensor,
+    c: torch.Tensor, # [B, 25]
     *,
     num_steps                  = 1000,
     initial_learning_rate      = 3e-4,
@@ -196,7 +201,8 @@ def project_pti(
     verbose                    = False,
     device: torch.device
 ):
-    assert target.shape == (G.img_channels, G.img_resolution, G.img_resolution)
+    assert targets.shape[1:] == (G.img_channels, G.img_resolution, G.img_resolution)
+    assert c.shape[0] == targets.shape[0]
 
     def logprint(*args):
         if verbose:
@@ -210,7 +216,7 @@ def project_pti(
         vgg16 = torch.jit.load(f).eval().to(device)
 
     # Features for target image.
-    target_images = target.unsqueeze(0).to(device).to(torch.float32) / 255.0 * 2 - 1
+    target_images = targets.to(device).to(torch.float32) / 255.0 * 2 - 1
     target_images_perc = (target_images + 1) * (255/2)
     if target_images_perc.shape[2] > 256:
         target_images_perc = F.interpolate(target_images_perc, size=(256, 256), mode='area')
@@ -232,7 +238,7 @@ def project_pti(
         #     param_group['lr'] = lr
 
         # Synth images from opt_w.
-        synth_images = G.synthesis(w_pivot, c=c, noise_mode='const')['image']
+        synth_images = G.synthesis(w_pivot.repeat(c.shape[0], 1, 1), c=c, noise_mode='const')['image']
 
         # Downsample image to 256x256 if it's larger than that. VGG was built for 224x224 images.
         synth_images_perc = (synth_images + 1) * (255/2)
@@ -265,7 +271,7 @@ def project_pti(
 # @click.option('--target', 'target_fname',       help='Target image file to project to', required=True, metavar='FILE|DIR')
 @click.option('--target_img', 'target_img',       help='Target image folder', required=True, metavar='FILE|DIR')
 @click.option('--target_seg', 'target_seg',       help='Target segmentation folder', required=False, metavar='FILE|DIR')
-@click.option('--idx',                    help='index from dataset', type=int, default=0,  metavar='FILE|DIR')
+@click.option('--idx',                    help='index from dataset', type=int, default=-1,  metavar='FILE|DIR')
 @click.option('--num-steps',              help='Number of optimization steps', type=int, default=500, show_default=True)
 @click.option('--num-steps-pti',          help='Number of optimization steps for pivot tuning', type=int, default=500, show_default=True)
 @click.option('--seed',                   help='Random seed', type=int, default=666, show_default=True)
@@ -273,13 +279,14 @@ def project_pti(
 @click.option('--outdir',                 help='Where to save the output images', required=True, metavar='DIR')
 @click.option('--fps',                    help='Frames per second of final video', default=30, show_default=True)
 @click.option('--shapes', type=bool, help='Gen shapes for shape interpolation', default=False, show_default=True)
+@click.option('--save-reference', type=bool, help='Generate a numpy array storing reference info', default=True, show_default=True)
 
 def run_projection(
     network_pkl: str,
     # target_fname: str,
     target_img:str,
     target_seg:str,
-    idx: int,
+    idx: Union[int, list[int]],
     outdir: str,
     save_video: bool,
     seed: int,
@@ -287,15 +294,22 @@ def run_projection(
     num_steps_pti: int,
     fps: int,
     shapes: bool,
+    save_reference: bool
 ):
     """Project given image to the latent space of pretrained network pickle.
-
     """
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    if type(idx) is int:
+        if idx == -1:
+            num_imgs = len(os.listdir(target_img)) - 1
+            idx = list(range(num_imgs))
+        else:
+            idx = [idx]
+
     # Render debug output: optional video and projected image and W vector.
-    outdir = os.path.join(outdir, os.path.basename(network_pkl), str(idx))
+    outdir = os.path.join(outdir, os.path.basename(network_pkl))
     os.makedirs(outdir, exist_ok=True)
 
     # Load networks.
@@ -313,23 +327,28 @@ def run_projection(
         # dataset_kwargs = dnnlib.EasyDict(class_name='training.dataset.MaskLabeledDataset', img_path=target_img, seg_path=target_seg, use_labels=True, max_size=None, xflip=False)
         dataset = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
         # target_fname = dataset._path + "/" + dataset._image_fnames[idx]
-        target_fname = dataset._path + "/" + dataset._image_fnames[idx]
-        c = torch.from_numpy(dataset._get_raw_labels()[idx:idx+1]).to(device)
-        print(f"projecting: [{idx}] {target_fname}")
+        target_fnames = [dataset._path + "/" + dataset._image_fnames[i] for i in idx]
+        c = torch.from_numpy(dataset._get_raw_labels()[idx]).to(device)
+        print(f"projecting: [{idx}] {target_fnames}")
         print(f"camera matrix: {c.shape}")
     # Load target image.
-    target_pil = PIL.Image.open(target_fname).convert('RGB')
-    w, h = target_pil.size
-    s = min(w, h)
-    target_pil = target_pil.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
-    target_pil = target_pil.resize((G.img_resolution, G.img_resolution), PIL.Image.LANCZOS)
-    target_uint8 = np.array(target_pil, dtype=np.uint8)
+    targets_uint8 = []
+    for target_fname in target_fnames:
+        target_pil = PIL.Image.open(target_fname).convert('RGB')
+        w, h = target_pil.size
+        s = min(w, h)
+        target_pil = target_pil.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
+        target_pil = target_pil.resize((G.img_resolution, G.img_resolution), PIL.Image.LANCZOS)
+        target_uint8 = np.array(target_pil, dtype=np.uint8)
+        targets_uint8.append(target_uint8)
+
+    targets_uint8 = np.stack(targets_uint8, axis=0)
 
     # Optimize projection.
     start_time = perf_counter()
     projected_w_steps, c = project(
         G,
-        target=torch.tensor(target_uint8.transpose([2, 0, 1]), device=device), # pylint: disable=not-callable
+        targets=torch.tensor(targets_uint8.transpose([0, 3, 1, 2]), device=device), # pylint: disable=not-callable
         c=c,
         num_steps=num_steps,
         device=device,
@@ -338,7 +357,7 @@ def run_projection(
     print (f'Elapsed: {(perf_counter()-start_time):.1f} s')
     G_steps = project_pti(
         G,
-        target=torch.tensor(target_uint8.transpose([2, 0, 1]), device=device), # pylint: disable=not-callable
+        targets=torch.tensor(targets_uint8.transpose([0, 3, 1, 2]), device=device), # pylint: disable=not-callable
         w_pivot=projected_w_steps[-1:],
         c=c,
         num_steps=num_steps_pti,
@@ -349,34 +368,44 @@ def run_projection(
 
 
     if save_video:
-        video = imageio.get_writer(f'{outdir}/proj.mp4', mode='I', fps=fps, codec='libx264', bitrate='16M')
-        print (f'Saving optimization progress video "{outdir}/proj.mp4"')
-        for i, projected_w in enumerate(projected_w_steps[::2]):
-            if i%2 == 1:
-                continue
-            synth_image = G.synthesis(projected_w.unsqueeze(0).to(device), c=c, noise_mode='const')['image']
-            synth_image = (synth_image + 1) * (255/2)
-            synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
-            video.append_data(np.concatenate([target_uint8, synth_image], axis=1))
-        for i, G_new in enumerate(G_steps):
-            if i%2 == 1:
-                continue
-            G_new.to(device)
-            synth_image = G_new.synthesis(projected_w_steps[-1].unsqueeze(0).to(device), c=c, noise_mode='const')['image']
-            synth_image = (synth_image + 1) * (255/2)
-            synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
-            video.append_data(np.concatenate([target_uint8, synth_image], axis=1))
-            G_new.cpu()
-        video.close()
+        for i in range(len(c)):
+            video = imageio.get_writer(f'{outdir}/proj_{i}.mp4', mode='I', fps=fps, codec='libx264', bitrate='16M')
+            print (f'Saving optimization progress video "{outdir}/proj_{i}.mp4"')
+            for projected_w in projected_w_steps[::4]:
+                synth_image = G.synthesis(projected_w.unsqueeze(0).to(device), c=c[i:i+1], noise_mode='const')['image']
+                synth_image = (synth_image + 1) * (255/2)
+                synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
+                video.append_data(np.concatenate([targets_uint8[i], synth_image], axis=1))
+            for G_new in G_steps[::2]:
+                G_new.to(device)
+                synth_image = G_new.synthesis(projected_w_steps[-1].unsqueeze(0).to(device), c=c[i:i+1], noise_mode='const')['image']
+                synth_image = (synth_image + 1) * (255/2)
+                synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
+                video.append_data(np.concatenate([targets_uint8[i], synth_image], axis=1))
+                G_new.cpu()
+            video.close()
+
+    if save_reference:
+        with torch.no_grad():
+            synth_result = G_steps[-1].to(device).synthesis(projected_w_steps[-1, None].repeat(c.shape[0], 1, 1).to(device), c=c, noise_mode='const')
+        img = synth_result['image']
+        depth = synth_result['image_depth']
+        reference_data = {
+            'image': img.cpu().numpy(),
+            'depth': depth.cpu().numpy(),
+            'c': c.detach().cpu().numpy()
+        }
+        np.savez(f'{outdir}/reference.npz', **reference_data)
 
     # Save final projected frame and W vector.
     target_pil.save(f'{outdir}/target.png')
     projected_w = projected_w_steps[-1]
     G_final = G_steps[-1].to(device)
-    synth_image = G_final.synthesis(projected_w.unsqueeze(0).to(device), c=c, noise_mode='const')['image']
-    synth_image = (synth_image + 1) * (255/2)
-    synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
-    PIL.Image.fromarray(synth_image, 'RGB').save(f'{outdir}/proj.png')
+    for i in range(len(c)):
+        synth_image = G_final.synthesis(projected_w.unsqueeze(0).to(device), c=c[i:i+1], noise_mode='const')['image']
+        synth_image = (synth_image + 1) * (255/2)
+        synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
+        PIL.Image.fromarray(synth_image, 'RGB').save(f'{outdir}/proj_{i}.png')
     np.savez(f'{outdir}/projected_w.npz', w=projected_w.unsqueeze(0).cpu().numpy())
 
     # Save geometry
