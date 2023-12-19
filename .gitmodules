@@ -1,3 +1,6 @@
 [submodule "neural-head-avatars"]
 	path = deps/neural-head-avatars
 	url = git@github.com:clostra/neural-head-avatars.git
+[submodule "deps/3DDFA_V2"]
+	path = deps/3DDFA_V2
+	url = git@github.com:cleardusk/3DDFA_V2.git
