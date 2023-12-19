@@ -1,0 +1,3 @@
+[submodule "neural-head-avatars"]
+	path = neural-head-avatars
+	url = git@github.com:clostra/neural-head-avatars.git
