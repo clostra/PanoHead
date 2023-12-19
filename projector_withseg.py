@@ -309,7 +309,7 @@ def run_projection(
             idx = [idx]
 
     # Render debug output: optional video and projected image and W vector.
-    outdir = os.path.join(outdir, os.path.basename(network_pkl))
+    # outdir = os.path.join(outdir, os.path.basename(network_pkl))
     os.makedirs(outdir, exist_ok=True)
 
     # Load networks.
