@@ -278,7 +278,7 @@ def project_pti(
 @click.option('--num-steps-pti',          help='Number of optimization steps for pivot tuning', type=int, default=1000, show_default=True)
 @click.option('--seed',                   help='Random seed', type=int, default=666, show_default=True)
 @click.option('--save-video',             help='Save an mp4 video of optimization progress', type=bool, default=True, show_default=True)
-@click.option('--outdir',                 help='Where to save the output images', required=True, metavar='DIR', default='pti_out')
+@click.option('--outdir',                 help='Where to save the output images', required=False, metavar='DIR')
 @click.option('--fps',                    help='Frames per second of final video', default=30, show_default=True)
 @click.option('--shapes', type=bool, help='Gen shapes for shape interpolation', default=False, show_default=True)
 @click.option('--save-reference', type=bool, help='Generate a numpy array storing reference info', default=True, show_default=True)
@@ -303,12 +303,9 @@ def run_projection(
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    if type(idx) is int:
-        if idx == -1:
-            num_imgs = len(os.listdir(target_img)) - 1
-            idx = list(range(num_imgs))
-        else:
-            idx = [idx]
+    if outdir is None:
+        outdir = os.path.join(target_img, 'pti_out')
+
 
     # Render debug output: optional video and projected image and W vector.
     # outdir = os.path.join(outdir, os.path.basename(network_pkl))
@@ -328,7 +325,15 @@ def run_projection(
         dataset_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=target_img, use_labels=True, max_size=None, xflip=False)
         # dataset_kwargs = dnnlib.EasyDict(class_name='training.dataset.MaskLabeledDataset', img_path=target_img, seg_path=target_seg, use_labels=True, max_size=None, xflip=False)
         dataset = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
+
+        if type(idx) is int:
+            if idx == -1:
+                num_imgs = len(dataset) - 1
+                idx = list(range(num_imgs))
+            else:
+                idx = [idx]
         # target_fname = dataset._path + "/" + dataset._image_fnames[idx]
+        print(idx, dataset._image_fnames)
         target_fnames = [dataset._path + "/" + dataset._image_fnames[i] for i in idx]
         c = torch.from_numpy(dataset._get_raw_labels()[idx]).to(device)
         print(f"projecting: [{idx}] {target_fnames}")
