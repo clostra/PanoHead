@@ -301,12 +301,6 @@ def run_projection(
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    if type(idx) is int:
-        if idx == -1:
-            num_imgs = len(os.listdir(target_img)) - 1
-            idx = list(range(num_imgs))
-        else:
-            idx = [idx]
 
     # Render debug output: optional video and projected image and W vector.
     # outdir = os.path.join(outdir, os.path.basename(network_pkl))
@@ -326,6 +320,12 @@ def run_projection(
         dataset_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=target_img, use_labels=True, max_size=None, xflip=False)
         # dataset_kwargs = dnnlib.EasyDict(class_name='training.dataset.MaskLabeledDataset', img_path=target_img, seg_path=target_seg, use_labels=True, max_size=None, xflip=False)
         dataset = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
+        if type(idx) is int:
+            if idx == -1:
+                num_imgs = len(dataset) - 1
+                idx = list(range(num_imgs))
+            else:
+                idx = [idx]
         # target_fname = dataset._path + "/" + dataset._image_fnames[idx]
         target_fnames = [dataset._path + "/" + dataset._image_fnames[i] for i in idx]
         c = torch.from_numpy(dataset._get_raw_labels()[idx]).to(device)
