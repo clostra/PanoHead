@@ -12,6 +12,14 @@ if __name__ == '__main__':
 
     path = Path(args.path).absolute()
 
+    if args.convert:
+        subprocess.run([
+            'python', 
+            'python_scripts/video_to_dataset.py', 
+            '--video', str(path),
+            '--out_path', str(path / 'ds')
+        ], cwd="deps/neural-head-avatars", check=True)
+
     cmd_args = [
         '--config', 'configs/tracking_person_0000.ini', 
         '--data_path', str(path / 'ds'),
@@ -20,8 +28,6 @@ if __name__ == '__main__':
         '--w_photo', '0',
         '--threeddfa_dataset_json', str(path / 'dataset.json')
     ]
-    if args.convert:
-        cmd_args += ['--video', str(path)]
 
     # Move 3DDFA_v2 helper files
     subprocess.run([
