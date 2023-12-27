@@ -10,8 +10,6 @@ if __name__ == '__main__':
 
     path = Path(args.path).absolute()
 
-    # python python_scripts/optimize_nha.py --config configs/optimize_avatar.ini --default_root_dir /home/dmitry/clones/PanoHead-clostra/dataset/dmitry_input/ds/results --tracking_results_path /home/dmitry/clones/PanoHead-clostra/dataset/dmitry_input/ds/tracking_results/tracking_5/tracked_flame_params.npz --data_path /home/dmitry/clones/PanoHead-clostra/dataset/dmitry_input/ds --gpus 1 --load_threeddfa /home/dmitry/clones/PanoHead-clostra/dataset/dmitry_input/dataset.json
-
     # Get latest tracking result
     tracking_results_path = path / 'ds' / 'tracking_results'
     tracking_results_list = list(tracking_results_path.iterdir())
@@ -19,10 +17,11 @@ if __name__ == '__main__':
     subprocess.run([
         'python', 
         'python_scripts/optimize_nha.py', 
-        '--config', 'configs/optimize_avatar.ini', 
+        '--config', 'configs/optimize_avatar_mesh_guidance.ini', 
         '--default_root_dir', str(path / 'ds' / 'results'),
         '--tracking_results_path', str(tracking_results_list[-1] / 'tracked_flame_params.npz'),
         '--data_path', str(path / 'ds'),
         '--gpus', '1',
-        '--load_threeddfa', str(path / 'dataset.json')
+        '--load_threeddfa', str(path / 'dataset.json'),
+        '--mesh', str(path / 'pti_out' / 'PTI_render' / 'post_mesh_level2' / 'mesh.obj')
     ], cwd="deps/neural-head-avatars", check=True)
