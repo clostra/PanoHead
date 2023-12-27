@@ -192,6 +192,7 @@ def convert_sdf_samples_to_obj(
     verts, faces, normals, values = skimage.measure.marching_cubes(
         numpy_3d_sdf_tensor, level=level, spacing=[1, 1, 1]
     )
+    faces = faces[:, [1, 0, 2]]  # Pytorch3d uses the reverse ordering of vertices from skimage
     verts = verts / (resolution - 1) - 0.5
     os.makedirs(path, exist_ok=True)
     export_textured_mesh(verts, faces, path, color_lambda=color_lambda)
