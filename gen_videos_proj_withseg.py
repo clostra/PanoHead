@@ -187,7 +187,7 @@ def gen_interp_video(G, mp4: str, ws, w_frames=60*4, kind='cubic', grid_dims=(1,
                     sigmas[:, :, -pad:] = 0
 
                     if output_ply:
-                        from shape_utils import convert_sdf_samples_to_ply, convert_sdf_samples_to_obj
+                        from shape_utils import convert_sdf_samples_to_obj
                         def _color_lambda(x):
                             dirs = torch.zeros_like(x)
                             dirs[..., -1] = -1
