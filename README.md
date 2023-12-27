@@ -18,11 +18,15 @@ Abstract: *Synthesis and reconstruction of 3D human head has gained increasing i
 ## Helper scripts from images to NHA avatar
 1. Create a directory with photos of a face (preferably in the same environment/lighting), assume the directory is `DATA`
 2. Run these scripts for a) Generating 3DFFA_V2 labels (facial landmarks / rotation) b) Gettnig a PanoHead avatar
+
+You will need `numpy==1.26.2` for these two scripts
 ```bash
 python scripts/generate_labels.py DATA
 python scripts/generate_panohead_avatar.py DATA
 ```
 3. Run these scripts to a) estimate the FLAME parameters for each frame b) train Neural Head Avatars on this data
+ 
+You will need `numpy==1.23.1` for these two scripts
 ```bash
 python scripts/run_vht.py DATA
 python scripts/run_nha.py DATA
