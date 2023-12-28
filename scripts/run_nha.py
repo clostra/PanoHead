@@ -2,6 +2,8 @@ import argparse
 import os
 import subprocess
 from pathlib import Path
+from glob import glob
+import json
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Neural-Head-Avatars')
@@ -10,8 +12,19 @@ if __name__ == '__main__':
 
     path = Path(args.path).absolute()
 
+    ds_path = path / 'ds'
+    num_frames = len(list(ds_path.glob('frame_*')))
+
+    # Generate full split.json
+    with open('deps' / 'neural-head-avatars' / 'split.json', 'w') as f:
+        split = {
+            'train': list(range(num_frames)),
+            'val': list(range(num_frames)),
+        }
+        json.dump(split, f)
+
     # Get latest tracking result
-    tracking_results_path = path / 'ds' / 'tracking_results'
+    tracking_results_path = ds_path / 'tracking_results'
     tracking_results_list = list(tracking_results_path.iterdir())
     tracking_results_list.sort()
     subprocess.run([
