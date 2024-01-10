@@ -16,7 +16,7 @@ if __name__ == '__main__':
     num_frames = len(list(ds_path.glob('frame_*')))
 
     # Generate full split.json
-    with open('deps' / 'neural-head-avatars' / 'split.json', 'w') as f:
+    with open('deps/neural-head-avatars/split.json', 'w') as f:
         split = {
             'train': list(range(num_frames)),
             'val': list(range(num_frames)),
