@@ -1,5 +1,6 @@
 import cv2
 import os
+import sys
 from pathlib import Path
 
 # Load 3DDFA
@@ -12,6 +13,7 @@ cfg = yaml.load(
     Loader=yaml.SafeLoader,
 )
 
+sys.path.insert(0, str(proj_path / "deps/3DDFA_V2"))
 os.chdir(str(proj_path / "deps/3DDFA_V2"))
 from TDDFA import TDDFA
 from FaceBoxes import FaceBoxes
