@@ -60,16 +60,8 @@ class NHAStaticTrainer(NHAOptimizer):
             lmks2 = get_lmks(self.post_mp4[i1])
 
         # Triangulate
-        proj1 = (
-            self.K[i0]
-            @ np.linalg.inv(self.c2w[i0])[:3]
-            * np.array([512, 512, 1])[:, None]
-        )
-        proj2 = (
-            self.K[i1]
-            @ np.linalg.inv(self.c2w[i1])[:3]
-            * np.array([512, 512, 1])[:, None]
-        )
+        proj1 = self.K[i0] @ np.linalg.inv(self.c2w[i0])[:3] * np.array([512, 512, 1])[:, None]
+        proj2 = self.K[i1] @ np.linalg.inv(self.c2w[i1])[:3] * np.array([512, 512, 1])[:, None]
         lmk3d_gt = cv2.triangulatePoints(proj1, proj2, lmks1[:2], lmks2[:2])
 
         lmk3d_gt = lmk3d_gt[:3] / lmk3d_gt[3:]
@@ -115,7 +107,7 @@ class NHAStaticTrainer(NHAOptimizer):
         self._rotation.data[0] = torch.from_numpy(mat_rotvec).to(self._log_scale_resid)
         self._translation.data[0] = torch.from_numpy(t).to(self._log_scale_resid)
 
-    def _get_current_optimizer(self):
+    def _get_current_optimizer(self, epoch=None):
         (
             flame_optim,
             offset_optim,
@@ -124,7 +116,6 @@ class NHAStaticTrainer(NHAOptimizer):
             off_resid_optim,
             all_resid_optim,
         ) = self.optimizers()
-
         return [flame_optim]
 
     def flame_step(self, batch, stage="train"):
@@ -140,9 +131,7 @@ class NHAStaticTrainer(NHAOptimizer):
 
         loss_dict = {}
 
-        loss_dict["lmk_loss"] = self._compute_lmk_loss(
-            batch_annotated, pred_lmks[idx_annotated]
-        )
+        loss_dict["lmk_loss"] = self._compute_lmk_loss(batch_annotated, pred_lmks[idx_annotated])
 
         loss = sum(loss_dict.values())
 
