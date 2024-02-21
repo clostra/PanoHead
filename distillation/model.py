@@ -164,9 +164,7 @@ class NHAStaticTrainer(NHAOptimizer):
         self.prepare_batch(batch)
         with torch.set_grad_enabled(True):
             loss, log_dict = self.flame_step(batch, stage="train")
-        self.log_dict(
-            log_dict, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True
-        )
+        self.log_dict(log_dict)
         self.is_train = False
         return loss
 
@@ -175,9 +173,7 @@ class NHAStaticTrainer(NHAOptimizer):
         batch["is_annotated"] = torch.tensor([True] * len(batch["rgb"]))
         with torch.no_grad():
             loss, log_dict = self.flame_step(batch, stage="val")
-        self.log_dict(
-            log_dict, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True
-        )
+        # self.log_dict(log_dict, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
 
         log_images = self.current_epoch % self.hparams["image_log_period"] == 0
         if batch_idx == 0 and log_images:
