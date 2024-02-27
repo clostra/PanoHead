@@ -39,8 +39,8 @@ class PanoheadPostDataset(RealDataset):
         post_mp4_path = pti_render / "post.mp4"
         post_c = np.load(str(post_c_path))
         self.post_mp4 = torch.from_numpy(np.stack(read_mp4(post_mp4_path)))
-        self.c2w = torch.from_numpy(post_c[:, :16].reshape(-1, 4, 4))
-        self.K = torch.from_numpy(post_c[:, 16:].reshape(-1, 3, 3))
+        self.pti_c2w = torch.from_numpy(post_c[:, :16].reshape(-1, 4, 4))
+        self.pti_K = torch.from_numpy(post_c[:, 16:].reshape(-1, 3, 3))
 
     def __len__(self):
         if self.mode == "val":
@@ -61,9 +61,9 @@ class PanoheadPostDataset(RealDataset):
             H, W = self.post_mp4.shape[1:3]
             # print(H, W, flush=True)
             return {
-                "cam_intrinsic": self.K[idx]
-                * torch.tensor([W, H, 1]).to(self.K)[..., None],
-                "cam_extrinsic": torch.linalg.inv(self.c2w[idx])[:3],
+                "cam_intrinsic": self.pti_K[idx]
+                * torch.tensor([W, H, 1]).to(self.pti_K)[..., None],
+                "cam_extrinsic": torch.linalg.inv(self.pti_c2w[idx])[:3],
                 "rgb": self.post_mp4[idx].permute(2, 0, 1).float() / 255 * 2 - 1,
                 "is_annotated": False,
                 "frame": 0,
