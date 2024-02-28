@@ -63,7 +63,7 @@ class PanoheadPostDataset(RealDataset):
             idx -= super().__len__()
             H, W = self.post_mp4.shape[1:3]
             mask = self.post_mask[idx]
-            mask = resize(mask, (H, W))
+            mask = resize(mask, (H, W), antialias=True)
             mask = mask > 0.5
 
             # print(H, W, flush=True)
