@@ -84,6 +84,6 @@ if __name__ == "__main__":
 
     trainer.fit(
         nha_static,
-        train_dataloader=data.train_dataloader(batch_size=1),
+        train_dataloader=data.train_dataloader(batch_size=16),
         val_dataloaders=data.val_dataloader(batch_size=3),
     )
