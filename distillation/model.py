@@ -129,10 +129,17 @@ class NHAStaticTrainer(NHAOptimizer):
         idx_annotated = batch["is_annotated"]
         batch_annotated = slice_batch(batch, idx_annotated)
 
+        loss_weights = self.get_current_lrs_n_lossweights()
+
         loss_dict = {}
 
-        loss_dict["lmk_loss"] = self._compute_lmk_loss(batch_annotated, pred_lmks[idx_annotated])
-        loss_dict["silh_loss"] = self._compute_silhouette_loss(batch, offsets_verts)
+        loss_dict["lmk_loss"] = (
+            self._compute_lmk_loss(batch_annotated, pred_lmks[idx_annotated])
+            * loss_weights["w_lmk"]
+        )
+        loss_dict["silh_loss"] = (
+            self._compute_silhouette_loss(batch, offsets_verts) * loss_weights["w_silh"]
+        )
 
         loss = sum(loss_dict.values())
 
