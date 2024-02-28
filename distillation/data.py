@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import sys
 from distillation.utils import read_mp4
+from torchvision.transforms.functional import resize
 
 sys.path.insert(0, "deps/neural-head-avatars")
 from nha.data.real import RealDataset, RealDataModule
@@ -37,8 +38,10 @@ class PanoheadPostDataset(RealDataset):
         pti_render = self.pti_out_path / "PTI_render"
         post_c_path = pti_render / "post_c.npy"
         post_mp4_path = pti_render / "post.mp4"
+        post_mask_path = pti_render / "post_mask.npy"
         post_c = np.load(str(post_c_path))
         self.post_mp4 = torch.from_numpy(np.stack(read_mp4(post_mp4_path)))
+        self.post_mask = torch.from_numpy(np.load(str(post_mask_path))).clamp(0, 1)
         self.pti_c2w = torch.from_numpy(post_c[:, :16].reshape(-1, 4, 4))
         self.pti_K = torch.from_numpy(post_c[:, 16:].reshape(-1, 3, 3))
 
@@ -59,6 +62,10 @@ class PanoheadPostDataset(RealDataset):
         else:
             idx -= super().__len__()
             H, W = self.post_mp4.shape[1:3]
+            mask = self.post_mask[idx]
+            mask = resize(mask, (H, W))
+            mask = mask > 0.5
+
             # print(H, W, flush=True)
             return {
                 "cam_intrinsic": self.pti_K[idx]
@@ -68,7 +75,7 @@ class PanoheadPostDataset(RealDataset):
                 "is_annotated": False,
                 "frame": 0,
                 # dummies for collate
-                "seg": torch.zeros(1, H, W, dtype=torch.uint8),
+                "seg": mask,
                 "lmk2d": torch.zeros(68, 3),
                 "lmk2d_iris": torch.zeros(2, 3),
                 "normal": torch.zeros(3, H, W),

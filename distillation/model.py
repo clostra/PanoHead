@@ -132,6 +132,7 @@ class NHAStaticTrainer(NHAOptimizer):
         loss_dict = {}
 
         loss_dict["lmk_loss"] = self._compute_lmk_loss(batch_annotated, pred_lmks[idx_annotated])
+        loss_dict["silh_loss"] = self._compute_silhouette_loss(batch, offsets_verts)
 
         loss = sum(loss_dict.values())
 
